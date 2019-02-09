@@ -136,16 +136,44 @@ LPWSTR Download2WChar(LPCWSTR lpszPostURL)
 	return lpszReturn;
 }
 
-LPCWSTR GetFileName(LPCWSTR lpszURL)
+BOOL URLToFileName(LPCWSTR lpszURL, LPWSTR lpszFileName, int nFileNameSize)
 {
-	LPCWSTR p = lpszURL;
-	while (*lpszURL != L'\0')
+	if (lpszURL != NULL)
 	{
-		if (*lpszURL == L'/')
-			p = lpszURL + 1;
-		++lpszURL;
+		LPCWSTR p = lpszURL + lstrlenW(lpszURL);
+		for (; p != lpszURL; --p)
+		{
+			if (*p == L'/')
+			{
+				break;
+			}
+		}
+		if (lstrlenW(p) >= 2)
+		{
+			lstrcpynW(lpszFileName, p + (p == lpszURL ? 0 : 1), nFileNameSize);
+			for (int i = 0; lpszFileName[i] != 0; ++i)
+			{
+				if (lpszFileName[i] == L'\"' ||
+					lpszFileName[i] == L'<' ||
+					lpszFileName[i] == L'>' ||
+					lpszFileName[i] == L'|' ||
+					lpszFileName[i] == L':' ||
+					lpszFileName[i] == L'*' ||
+					lpszFileName[i] == L'?' ||
+					lpszFileName[i] == L'\\' ||
+					lpszFileName[i] == L'/')
+					lpszFileName[i] = 0;
+			}
+			if (lstrlenW(lpszFileName) == 0)
+				goto SETDEFAULT;
+			return TRUE;
+		}
 	}
-	return p;
+SETDEFAULT:
+#define DEFAULT_FILE_NAME L"video.mp4"
+	lstrcpynW(lpszFileName, DEFAULT_FILE_NAME, nFileNameSize);
+#undef DEFAULT_FILE_NAME
+	return TRUE;
 }
 
 BOOL DownloadFacebookVideo(LPCWSTR lpszPostURL, LPCWSTR lpszOutputFolder = 0)
@@ -158,7 +186,7 @@ BOOL DownloadFacebookVideo(LPCWSTR lpszPostURL, LPCWSTR lpszOutputFolder = 0)
 
 	size_t posStart = 0, posEnd = 0;
 
-	LPWSTR lpszQualityTag[] = { L"sd_src_no_ratelimit", L"hd_src_no_ratelimit", L"hd_src", L"sd_src" };
+	LPWSTR lpszQualityTag[] = { L"hd_src_no_ratelimit", L"hd_src", L"sd_src_no_ratelimit", L"sd_src" };
 
 	for (auto v : lpszQualityTag)
 	{
@@ -168,7 +196,24 @@ BOOL DownloadFacebookVideo(LPCWSTR lpszPostURL, LPCWSTR lpszOutputFolder = 0)
 			posStart += lstrlenW(v) + 2;
 			posEnd = srcW.find(L'\"', posStart);
 			std::wstring url(srcW, posStart, posEnd - posStart);
-			DownloadToFile(url.c_str(), ((lpszOutputFolder ? std::wstring(lpszOutputFolder) : std::wstring()) + std::wstring(v) + std::wstring(L".mp4")).c_str());
+			WCHAR szFileName[MAX_PATH];
+			URLToFileName(url.c_str(), szFileName, _countof(szFileName));
+			WCHAR szFullFileName[MAX_PATH] = { 0 };
+			if (lpszOutputFolder)
+			{
+				lstrcpyW(szFullFileName, lpszOutputFolder);
+				PathAppendW(szFullFileName, szFileName);
+			}
+			else
+			{
+				GetModuleFileNameW(0, szFullFileName, _countof(szFullFileName));
+				PathRemoveFileSpecW(szFullFileName);
+				PathAppendW(szFullFileName, szFileName);
+			}
+			if (DownloadToFile(url.c_str(), szFullFileName))
+			{
+				break;
+			}
 		}
 	}
 
